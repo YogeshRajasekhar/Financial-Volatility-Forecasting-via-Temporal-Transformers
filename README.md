@@ -26,12 +26,12 @@ graph LR
     B -->|+ Positional Encoding| C["Transformer Encoder"]
     C -->|Extract Last Step t=L| D["Linear Output Head"]
     D --> E["Prediction ŷ"]
+```
 
 1. **Input Projection Layer**: Projects sequence inputs to $D_{\text{model}} = 64$.
 2. **Positional Encoding**: Sinusoidal positional embeddings preserve time order.
 3. **Transformer Encoder**: 2-layer, 4-head attention block with dropout ($p = 0.1$).
 4. **Output Head**: Regression head operating on the final sequence step $T$ to predict 1-step-ahead volatility.
-```
 
 ---
 
