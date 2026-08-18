@@ -33,6 +33,6 @@ $$\text{Input Features } X \in \mathbb{R}^{B \times L \times D_{\text{in}}} \xri
 
 ### 1. Clone & Install Dependencies
 ```bash
-git clone [https://github.com/your-username/temporal-transformer-volatility.git](https://github.com/your-username/temporal-transformer-volatility.git)
+git clone [https://github.com/YogeshRajasekhar/Financial-Volatility-Forecasting-via-Temporal-Transformers.git](https://github.com/YogeshRajasekhar/Financial-Volatility-Forecasting-via-Temporal-Transformers.git)
 cd temporal-transformer-volatility
 pip install -r requirements.txt
