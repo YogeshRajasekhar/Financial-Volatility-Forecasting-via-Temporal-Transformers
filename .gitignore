@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environments
+.venv/
+env/
+venv/
+ENV/
+
+# PyTorch Checkpoints & Outputs
+*.pt
+*.pth
+*.png
+
+# IDEs
+.vscode/
+.idea/
