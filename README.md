@@ -20,7 +20,13 @@ A PyTorch-based hybrid deep learning framework that leverages Multi-Head Attenti
 
 The core pipeline transforms multi-dimensional time-series features (log returns and 5-day rolling realized volatility) through a multi-layer Transformer Encoder:
 
-$$\mathbf{X} \in \mathbb{R}^{B \times L \times D_{\text{in}}} \xrightarrow{\text{Linear Projection}} \mathbb{R}^{B \times L \times D_{\text{model}}} \xrightarrow{+\text{PE}} \text{Transformer Encoder} \xrightarrow{\text{Last Step } t=L} \text{Linear Head} \longrightarrow \hat{y}$$
+$$
+\mathbf{X} \in \mathbb{R}^{B \times L \times D_{\text{in}}} 
+\xrightarrow{\text{Linear Projection}} \mathbb{R}^{B \times L \times D_{\text{model}}} 
+\xrightarrow{+\text{PE}} \text{Transformer Encoder} 
+\xrightarrow{\text{Last Step } t=L} \text{Linear Head} 
+\longrightarrow \hat{y}
+$$
 
 1. **Input Projection Layer**: Projects sequence inputs to $D_{\text{model}} = 64$.
 2. **Positional Encoding**: Sinusoidal positional embeddings preserve time order.
