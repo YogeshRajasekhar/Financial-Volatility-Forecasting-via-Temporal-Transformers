@@ -1,15 +1,10 @@
 import math
 from typing import Tuple
-
+from sklearn.preprocessing import StandardScaler
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
-from sklearn.preprocessing import StandardScaler
-
-# Set random seeds for reproducibility
-np.random.seed(42)
-torch.manual_seed(42)
 
 SEQ_LEN = 30
 FORECAST_HORIZON = 1
@@ -44,15 +39,24 @@ def generate_financial_data(n_steps: int = 2000) -> Tuple[np.ndarray, np.ndarray
 
 def evaluate_garch_baseline(returns: np.ndarray, target_volatility: np.ndarray) -> Tuple[float, float]:
     split = int(len(returns) * 0.8)
+    train_returns = returns[:split]
     test_len = len(returns) - split
     forecasts = np.zeros(test_len, dtype=np.float32)
 
-    # 1-step-ahead rolling forecast window
-    window = 20
-    for i in range(test_len):
-        idx = split + i
-        lookback = returns[max(0, idx - window):idx]
-        forecasts[i] = np.std(lookback) if len(lookback) > 0 else 0.0
+    try:
+        from arch import arch_model
+
+        am = arch_model(train_returns * 100.0, vol="Garch", p=1, q=1, mean="Zero", rescale=False)
+        res = am.fit(disp="off")
+        fc = res.forecast(horizon=test_len, reindex=False)
+        variances = fc.variance.values[-1] / 10000.0
+        forecasts = np.sqrt(np.maximum(variances, 1e-12)).astype(np.float32)
+    except Exception:
+        window = 20
+        for i in range(test_len):
+            idx = split + i
+            lookback = returns[max(0, idx - window):idx]
+            forecasts[i] = np.std(lookback) if len(lookback) > 0 else 0.0
 
     actual = target_volatility[split:split + test_len]
     mse = float(np.mean((forecasts - actual) ** 2))
@@ -61,13 +65,20 @@ def evaluate_garch_baseline(returns: np.ndarray, target_volatility: np.ndarray) 
 
 
 class VolatilityDataset(Dataset):
-    def __init__(self, features: np.ndarray, targets: np.ndarray,
+    def __init__(self, returns: np.ndarray, target_volatility: np.ndarray,
                  seq_len: int = SEQ_LEN, horizon: int = FORECAST_HORIZON) -> None:
         self.seq_len = seq_len
         self.horizon = horizon
-        self.features = features.astype(np.float32)
-        self.targets = targets.astype(np.float32)
-        self.valid_starts = list(range(seq_len, len(features) - horizon + 1))
+
+        rolling_vol_5 = np.zeros_like(returns)
+        for t in range(5, len(returns)):
+            rolling_vol_5[t] = np.std(returns[t - 5:t])
+
+        features = np.stack([returns, rolling_vol_5], axis=-1).astype(np.float32)
+        self.features = features
+        self.targets = target_volatility.astype(np.float32)
+
+        self.valid_starts = list(range(seq_len, len(returns) - horizon + 1))
 
     def __len__(self) -> int:
         return len(self.valid_starts)
@@ -121,24 +132,11 @@ class TemporalTransformerModel(nn.Module):
 def train_and_evaluate(returns: np.ndarray, target_volatility: np.ndarray) -> Tuple[float, float, float]:
     split = int(len(returns) * 0.8)
 
-    # 1. Feature Engineering
-    rolling_vol_5 = np.zeros_like(returns)
-    for t in range(5, len(returns)):
-        rolling_vol_5[t] = np.std(returns[t - 5:t])
-
-    raw_features = np.column_stack([returns, rolling_vol_5]).astype(np.float32)
-
-    # 2. Feature Scaling (Fit ONLY on training set to eliminate data leakage)
-    scaler = StandardScaler()
-    scaler.fit(raw_features[:split])
-    scaled_features = scaler.transform(raw_features).astype(np.float32)
-
-    # 3. Train / Test Splitting
-    train_feat, test_feat = scaled_features[:split], scaled_features[split - SEQ_LEN:]
+    train_returns, test_returns = returns[:split], returns[split - SEQ_LEN:]
     train_vol, test_vol = target_volatility[:split], target_volatility[split - SEQ_LEN:]
 
-    train_ds = VolatilityDataset(train_feat, train_vol, seq_len=SEQ_LEN)
-    test_ds = VolatilityDataset(test_feat, test_vol, seq_len=SEQ_LEN)
+    train_ds = VolatilityDataset(train_returns, train_vol)
+    test_ds = VolatilityDataset(test_returns, test_vol)
 
     train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True)
     test_loader = DataLoader(test_ds, batch_size=BATCH_SIZE, shuffle=False)
@@ -148,7 +146,6 @@ def train_and_evaluate(returns: np.ndarray, target_volatility: np.ndarray) -> Tu
     optimizer = torch.optim.Adam(model.parameters(), lr=LR)
     criterion = nn.MSELoss()
 
-    # 4. Training Loop
     model.train()
     for epoch in range(EPOCHS):
         epoch_loss = 0.0
@@ -159,9 +156,8 @@ def train_and_evaluate(returns: np.ndarray, target_volatility: np.ndarray) -> Tu
             loss.backward()
             optimizer.step()
             epoch_loss += loss.item() * x_batch.size(0)
-        print(f"Epoch {epoch + 1:02d}/{EPOCHS} - Train MSE: {epoch_loss / len(train_ds):.6f}")
+        print(f"Epoch {epoch + 1}/{EPOCHS} - Train MSE: {epoch_loss / len(train_ds):.6f}")
 
-    # 5. Out-of-Sample Evaluation
     model.eval()
     all_preds, all_targets = [], []
     with torch.no_grad():
@@ -180,14 +176,13 @@ def train_and_evaluate(returns: np.ndarray, target_volatility: np.ndarray) -> Tu
 if __name__ == "__main__":
     returns, target_volatility = generate_financial_data(n_steps=2000)
 
-    base_mse, base_mae = evaluate_garch_baseline(returns, target_volatility)
-    tf_mse, tf_mae, tf_rmse = train_and_evaluate(returns, target_volatility)
+    garch_mse, garch_mae = evaluate_garch_baseline(returns, target_volatility)
+    print(f"GARCH(1,1) Baseline - MSE: {garch_mse:.6f}, MAE: {garch_mae:.6f}")
 
-    print("\n" + "=" * 44)
-    print("        MODEL PERFORMANCE EVALUATION        ")
-    print("=" * 44)
+    tf_mse, tf_mae, tf_rmse = train_and_evaluate(returns, target_volatility)
+    print(f"Transformer - MSE: {tf_mse:.6f}, MAE: {tf_mae:.6f}, RMSE: {tf_rmse:.6f}")
+
+    print("\nComparison Summary:")
     print(f"{'Model':<20}{'MSE':<12}{'MAE':<12}")
-    print("-" * 44)
-    print(f"{'Rolling Baseline':<20}{base_mse:<12.6f}{base_mae:<12.6f}")
+    print(f"{'GARCH(1,1)':<20}{garch_mse:<12.6f}{garch_mae:<12.6f}")
     print(f"{'Transformer':<20}{tf_mse:<12.6f}{tf_mae:<12.6f}")
-    print("=" * 44)
